@@ -2,13 +2,12 @@ package com.example.token2.account;
 
 import com.example.token2.jwt.JwtProvider;
 import com.example.token2.jwt.TokenResponse;
+import com.example.token2.token.AccountDetails;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletResponse;
 
@@ -36,4 +35,11 @@ public class AccountController {
         return jwtProvider.createTokensByLogin(accountResponse);
     }
 
+    @GetMapping("/reissue")
+    public TokenResponse reissue(
+            @AuthenticationPrincipal AccountDetails accountDetails
+    ) throws JsonProcessingException {
+        AccountResponse accountResponse = AccountResponse.of(accountDetails.getAccount());
+        return jwtProvider.reissueAtk(accountResponse);
+    }
 }

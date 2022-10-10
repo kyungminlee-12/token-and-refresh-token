@@ -1,6 +1,8 @@
 package com.example.token2.jwt;
 
 import com.example.token2.account.AccountResponse;
+import com.example.token2.common.RedisDao;
+import com.example.token2.exception.ForbiddenException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -12,13 +14,16 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.Date;
+import java.util.Objects;
 
 @Component
 @RequiredArgsConstructor
 public class JwtProvider {
 
+    private final RedisDao redisDao;
     private final ObjectMapper objectMapper;
 
     @Value("${spring.jwt.key}")
@@ -27,9 +32,23 @@ public class JwtProvider {
     @Value("${spring.jwt.live.atk}")
     private Long atkLive;
 
+    @Value("${spring.jwt.live.rtk}")
+    private Long rtkLive;
+
     @PostConstruct
     protected void init() {
         key = Base64.getEncoder().encodeToString(key.getBytes());
+    }
+
+    public TokenResponse reissueAtk(AccountResponse accountResponse) throws JsonProcessingException {
+        String rtkInRedis = redisDao.getValues(accountResponse.getEmail());
+        if (Objects.isNull(rtkInRedis)) throw new ForbiddenException("인증 정보가 만료되었습니다.");
+        Subject atkSubject = Subject.atk(
+                accountResponse.getAccountId(),
+                accountResponse.getEmail(),
+                accountResponse.getNickname());
+        String atk = createToken(atkSubject, atkLive);
+        return new TokenResponse(atk, null);
     }
 
     public TokenResponse createTokensByLogin(AccountResponse accountResponse) throws JsonProcessingException {
@@ -37,8 +56,14 @@ public class JwtProvider {
                 accountResponse.getAccountId(),
                 accountResponse.getEmail(),
                 accountResponse.getNickname());
+        Subject rtkSubject = Subject.rtk(
+                accountResponse.getAccountId(),
+                accountResponse.getEmail(),
+                accountResponse.getNickname());
         String atk = createToken(atkSubject, atkLive);
-        return new TokenResponse(atk, null);
+        String rtk = createToken(rtkSubject, rtkLive);
+        redisDao.setValues(accountResponse.getEmail(), rtk, Duration.ofMillis(rtkLive));
+        return new TokenResponse(atk, rtk);
     }
 
     private String createToken(Subject subject, Long tokenLive) throws JsonProcessingException {
@@ -52,5 +77,10 @@ public class JwtProvider {
                 .setExpiration(new Date(date.getTime() + tokenLive))
                 .signWith(SignatureAlgorithm.HS256, key)
                 .compact();
+    }
+
+    public Subject getSubject(String atk) throws JsonProcessingException {
+        String subjectStr = Jwts.parser().setSigningKey(key).parseClaimsJws(atk).getBody().getSubject();
+        return objectMapper.readValue(subjectStr, Subject.class);
     }
 }
